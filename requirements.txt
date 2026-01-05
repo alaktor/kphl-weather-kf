@@ -4,3 +4,7 @@ requests
 lxml
 html5lib
 matplotlib
+google-api-python-client
+google-auth
+google-auth-httplib2
+google-auth-oauthlib
