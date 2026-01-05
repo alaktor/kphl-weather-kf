@@ -1,28 +1,32 @@
 import os
-import json
-from google.oauth2 import service_account
+from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
 OUT_DIR = "out"
+SCOPES = ["https://www.googleapis.com/auth/drive.file"]  # safer than full drive
 
 def main():
-    sa_json = os.environ["GDRIVE_SA_JSON"]
     folder_id = os.environ["GDRIVE_FOLDER_ID"]
 
-    creds_info = json.loads(sa_json)
-    creds = service_account.Credentials.from_service_account_info(
-        creds_info,
-        scopes=["https://www.googleapis.com/auth/drive"]
+    creds = Credentials(
+        token=None,
+        refresh_token=os.environ["GDRIVE_REFRESH_TOKEN"],
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=os.environ["GDRIVE_CLIENT_ID"],
+        client_secret=os.environ["GDRIVE_CLIENT_SECRET"],
+        scopes=SCOPES,
     )
+    creds.refresh(Request())
     service = build("drive", "v3", credentials=creds)
 
-    # Upload or overwrite by filename in the target folder
     for fname in os.listdir(OUT_DIR):
         fpath = os.path.join(OUT_DIR, fname)
         if not os.path.isfile(fpath):
             continue
 
+        # Find same-named file in target folder (overwrite behavior)
         q = f"'{folder_id}' in parents and name='{fname}' and trashed=false"
         res = service.files().list(q=q, fields="files(id,name)").execute()
         files = res.get("files", [])
