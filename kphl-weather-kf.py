@@ -338,41 +338,53 @@ plt.legend()
 plt.tight_layout()
 plt.show()
 
+# --- Write outputs locally (GitHub Actions will upload via upload_to_drive.py) ---
+OUT_DIR = "out"
+os.makedirs(OUT_DIR, exist_ok=True)
 
-
-# --- Ensure Drive is mounted and folder exists ---
-drive.mount("/content/drive")
-
-WEATHER_DIR = "/content/drive/MyDrive/weather"
-os.makedirs(WEATHER_DIR, exist_ok=True)
-
-MASTER_PATH = f"{WEATHER_DIR}/KPHL_master_progressive.csv"
+MASTER_PATH = os.path.join(OUT_DIR, "KPHL_master_progressive.csv")
 
 # --- Build the "new block" to upsert into master ---
-# Use hourly-aligned dataframes you already created: obs_kf_hr, fcst_kf_hr
+# Hourly-aligned frames you already have: obs_kf_hr, fcst_kf_hr, bias_df
 
 obs_block = obs_kf_hr.rename(columns={"time_hr": "time", "temp_F": "obs_temp_F"}).copy()
 fcst_block = fcst_kf_hr.rename(columns={"time_hr": "time", "temp_F": "fcst_temp_F"}).copy()
 
-# Bias by hour: take last bias per hour
-bias_block = bias_df[["time", "bias_F", "bias_std_F"]].copy()
-bias_block["time"] = pd.to_datetime(bias_block["time"]).dt.floor("h")
-bias_block = bias_block.groupby("time", as_index=False).last()
+# Bias by hour from KF (only exists where obs & fcst overlap)
+bias_hourly = bias_df[["time", "bias_F", "bias_std_F"]].copy()
+bias_hourly["time"] = pd.to_datetime(bias_hourly["time"]).dt.floor("h")
+bias_hourly = bias_hourly.groupby("time", as_index=False).last().sort_values("time")
 
-# Merge into one progressive block (one row per hour)
-block = (fcst_block
+# Latest bias values (used to fill if needed)
+b_now = float(bias_df["bias_F"].iloc[-1])
+bias_std_now = float(bias_df["bias_std_F"].iloc[-1])
+
+# --- Forward-fill bias onto the FULL forecast timeline ---
+fcst_block["time"] = pd.to_datetime(fcst_block["time"]).dt.floor("h")
+fcst_idx = fcst_block.sort_values("time").set_index("time")
+
+bias_idx = bias_hourly.set_index("time")[["bias_F", "bias_std_F"]]
+fcst_idx[["bias_F", "bias_std_F"]] = bias_idx.reindex(fcst_idx.index).ffill()
+
+# Fill anything still missing (e.g., before first bias) with latest bias
+fcst_idx["bias_F"] = fcst_idx["bias_F"].fillna(b_now)
+fcst_idx["bias_std_F"] = fcst_idx["bias_std_F"].fillna(bias_std_now)
+
+# Corrected forecast temperature for ALL forecast hours
+fcst_idx["corr_temp_F"] = fcst_idx["fcst_temp_F"] + fcst_idx["bias_F"]
+
+fcst_block2 = fcst_idx.reset_index()
+
+# Merge obs into the same timeline (obs will naturally be NaN in the future)
+block = (fcst_block2
          .merge(obs_block, on="time", how="outer")
-         .merge(bias_block, on="time", how="outer")
          .sort_values("time")
          .reset_index(drop=True))
-
-# Add corrected forecast temperature where bias exists
-block["corr_temp_F"] = block["fcst_temp_F"] + block["bias_F"]
 
 # Optional: record run timestamp (nice for auditing)
 block["run_time_et"] = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d %H:%M:%S")
 
-# --- Upsert into the single master CSV ---
+# --- Upsert into the single progressive master CSV (local file) ---
 master_df = upsert_master_by_time(MASTER_PATH, block, time_col="time")
 
 print("Saved/updated progressive master:", MASTER_PATH)
