@@ -10,8 +10,6 @@ import os
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import matplotlib.ticker as mticker
-from google.colab import drive
-
 
 def get_nws_hourly_forecast_df(lat=39.8733, lon=-75.2268):
     import requests, pandas as pd
