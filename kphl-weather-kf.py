@@ -127,35 +127,78 @@ def kalman_bias_update(b, P, residual, Q, R):
 #Helper
 
 
+# def upsert_master_by_time(master_path, new_block, time_col="time"):
+#     """
+#     Upsert rows into a 'progressive master' CSV keyed by time.
+#     - If master exists: merge and prefer new non-null values.
+#     - If master doesn't exist: create it.
+#     """
+#     new_block = new_block.copy()
+#     new_block[time_col] = pd.to_datetime(new_block[time_col])
+
+#     if os.path.exists(master_path):
+#         master = pd.read_csv(master_path)
+#         master[time_col] = pd.to_datetime(master[time_col])
+#     else:
+#         master = pd.DataFrame(columns=new_block.columns)
+
+#     merged = master.merge(new_block, on=time_col, how="outer", suffixes=("", "_new"))
+
+#     # For each field, prefer new values when present
+#     for col in new_block.columns:
+#         if col == time_col:
+#             continue
+#         new_col = col + "_new"
+#         if new_col in merged.columns:
+#             merged[col] = merged[new_col].combine_first(merged[col])
+#             merged.drop(columns=[new_col], inplace=True)
+
+#     merged = merged.sort_values(time_col).reset_index(drop=True)
+#     merged.to_csv(master_path, index=False)
+#     return merged
+
 def upsert_master_by_time(master_path, new_block, time_col="time"):
     """
-    Upsert rows into a 'progressive master' CSV keyed by time.
-    - If master exists: merge and prefer new non-null values.
-    - If master doesn't exist: create it.
+    Option A master:
+    - Keep a single row per hour (keyed by `time`)
+    - Append new hours as they appear
+    - Update existing hours with new non-null values
+    - Never overwrite existing values with NaN/blank
+    - Preserve ALL historical rows (no trimming)
     """
-    new_block = new_block.copy()
-    new_block[time_col] = pd.to_datetime(new_block[time_col])
+    nb = new_block.copy()
+    nb[time_col] = pd.to_datetime(nb[time_col])
+    nb = nb.sort_values(time_col).reset_index(drop=True)
 
+    # Load existing master
     if os.path.exists(master_path):
         master = pd.read_csv(master_path)
         master[time_col] = pd.to_datetime(master[time_col])
     else:
-        master = pd.DataFrame(columns=new_block.columns)
+        master = pd.DataFrame(columns=nb.columns)
 
-    merged = master.merge(new_block, on=time_col, how="outer", suffixes=("", "_new"))
+    # Ensure both have same columns (union)
+    for c in nb.columns:
+        if c not in master.columns:
+            master[c] = pd.NA
+    for c in master.columns:
+        if c not in nb.columns:
+            nb[c] = pd.NA
 
-    # For each field, prefer new values when present
-    for col in new_block.columns:
-        if col == time_col:
-            continue
-        new_col = col + "_new"
-        if new_col in merged.columns:
-            merged[col] = merged[new_col].combine_first(merged[col])
-            merged.drop(columns=[new_col], inplace=True)
+    # Index by time for clean upsert
+    master = master.set_index(time_col)
+    nb = nb.set_index(time_col)
 
-    merged = merged.sort_values(time_col).reset_index(drop=True)
-    merged.to_csv(master_path, index=False)
-    return merged
+    # Update: only write where new values are NOT null
+    master.update(nb)
+
+    # Append: add times that are new
+    master = pd.concat([master, nb[~nb.index.isin(master.index)]], axis=0)
+
+    # Sort + save
+    master = master.sort_index().reset_index()
+    master.to_csv(master_path, index=False)
+    return master
 
 
 # -----------------------------
@@ -348,7 +391,21 @@ MASTER_PATH = os.path.join(OUT_DIR, "KPHL_master_progressive.csv")
 # Hourly-aligned frames you already have: obs_kf_hr, fcst_kf_hr, bias_df
 
 obs_block = obs_kf_hr.rename(columns={"time_hr": "time", "temp_F": "obs_temp_F"}).copy()
-fcst_block = fcst_kf_hr.rename(columns={"time_hr": "time", "temp_F": "fcst_temp_F"}).copy()
+# REPLACE fcst_block creation: use full forecast dataframe so master keeps all forecast variables
+fcst_block = fcst_df.copy()
+fcst_block["time"] = pd.to_datetime(fcst_block["time"]).dt.tz_localize(None).dt.floor("h")
+
+# Rename forecast columns so they don't collide with obs columns later
+fcst_block = fcst_block.rename(columns={
+    "temp_F": "fcst_temp_F",
+    "dewpoint_F": "fcst_dewpoint_F",   # if you have dewpoint_F; if you used dewpoint_C, rename that instead
+    "rh_pct": "fcst_rh_pct",
+    "wind_mph": "fcst_wind_mph",
+    "wind_dir": "fcst_wind_dir",
+    "sky_cover": "fcst_sky_cover",
+})
+
+# fcst_block = fcst_kf_hr.rename(columns={"time_hr": "time", "temp_F": "fcst_temp_F"}).copy()
 
 # Bias by hour from KF (only exists where obs & fcst overlap)
 bias_hourly = bias_df[["time", "bias_F", "bias_std_F"]].copy()
