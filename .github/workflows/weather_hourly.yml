@@ -24,7 +24,7 @@ jobs:
 
       - name: Run pipeline
         run: |
-          python kphl-weather-kf.py
+          python run_stations.py
 
       - name: Upload outputs to Google Drive
         env:
