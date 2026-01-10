@@ -585,19 +585,31 @@ def upsert_master_by_time(master_path, new_block, time_col="time"):
 # -----------------------------
 # Main pipeline
 # -----------------------------
-def run_pipeline(
+# def run_pipeline(
+#     out_dir="out",
+#     lat=39.8733,
+#     lon=-75.2268,
+#     horizon_hours=48,
+#     tz_name="America/New_York"
+# ):
+    def run_pipeline(
     out_dir="out",
+    station_id="KPHL",
     lat=39.8733,
     lon=-75.2268,
+    obs_url="https://forecast.weather.gov/data/obhistory/KPHL.html",
     horizon_hours=48,
     tz_name="America/New_York"
 ):
+
     TZ = ZoneInfo(tz_name)
     os.makedirs(out_dir, exist_ok=True)
 
     # 1) Fetch
     fcst_df = get_nws_hourly_forecast_df(lat=lat, lon=lon)
-    obs_df = get_nws_kphl_obs_df(tz_name=tz_name)
+    # obs_df = get_nws_kphl_obs_df(tz_name=tz_name)
+    obs_df = get_nws_kphl_obs_df(url=obs_url, tz_name=tz_name)
+
 
     # 2) Standardize time (drop tz for alignment)
     fcst_df["time"] = pd.to_datetime(fcst_df["time"]).dt.tz_localize(None)
