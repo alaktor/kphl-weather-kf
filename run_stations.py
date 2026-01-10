@@ -19,7 +19,7 @@ STATIONS = [
 
 def run_one(cfg: dict) -> None:
     cmd = [
-        sys.executable, "run_kphl_kf.py",
+        sys.executable, "kphl-weather-kf.py",
         "--station", cfg["station"],
         "--lat", cfg["lat"],
         "--lon", cfg["lon"],
