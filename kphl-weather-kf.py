@@ -707,15 +707,21 @@ def upsert_master_by_time(master_path, new_block, time_col="time"):
     block["run_time_et"] = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
 
     # 6) Save/update progressive master locally (Actions will upload to Drive)
-    master_path = os.path.join(out_dir, "KPHL_master_progressive.csv")
+    # master_path = os.path.join(out_dir, "KPHL_master_progressive.csv")
+    master_path = os.path.join(out_dir, f"{station_id}_master_progressive.csv")
     master_df = upsert_master_by_time(master_path, block, time_col="time")
 
     # Also save latest data products (debuggable)
-    fcst_df.to_csv(os.path.join(out_dir, "KPHL_fcst_latest.csv"), index=False)
-    obs_df.to_csv(os.path.join(out_dir, "KPHL_obs_latest.csv"), index=False)
-    bias_df.to_csv(os.path.join(out_dir, "KPHL_bias_latest.csv"), index=False)
-    future.to_csv(os.path.join(out_dir, "KPHL_future_corr_latest.csv"), index=False)
+    # fcst_df.to_csv(os.path.join(out_dir, "KPHL_fcst_latest.csv"), index=False)
+    # obs_df.to_csv(os.path.join(out_dir, "KPHL_obs_latest.csv"), index=False)
+    # bias_df.to_csv(os.path.join(out_dir, "KPHL_bias_latest.csv"), index=False)
+    # future.to_csv(os.path.join(out_dir, "KPHL_future_corr_latest.csv"), index=False)
 
+    fcst_df.to_csv(os.path.join(out_dir, f"{station_id}_fcst_latest.csv"), index=False)
+    obs_df.to_csv(os.path.join(out_dir, f"{station_id}_obs_latest.csv"), index=False)
+    bias_df.to_csv(os.path.join(out_dir, f"{station_id}_bias_latest.csv"), index=False)
+    future.to_csv(os.path.join(out_dir, f"{station_id}_future_corr_latest.csv"), index=False)
+    
     # 7) Save a plot PNG (no GUI needed)
     fig = plt.figure(figsize=(18, 5))
 
@@ -752,7 +758,8 @@ def upsert_master_by_time(master_path, new_block, time_col="time"):
     plt.legend()
     plt.tight_layout()
 
-    plot_path = os.path.join(out_dir, "KPHL_plot_latest.png")
+    # plot_path = os.path.join(out_dir, "KPHL_plot_latest.png")
+    plot_path = os.path.join(out_dir, f"{station_id}_plot_latest.png")
     fig.savefig(plot_path, dpi=150)
     plt.close(fig)
 
@@ -771,7 +778,6 @@ def upsert_master_by_time(master_path, new_block, time_col="time"):
     print(run_log.iloc[0].to_dict())
     print("Wrote outputs to:", out_dir)
     print("Progressive master rows:", len(master_df))
-
 
 if __name__ == "__main__":
     run_pipeline()
