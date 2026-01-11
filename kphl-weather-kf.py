@@ -182,9 +182,20 @@ def upsert_master_by_time(master_path, new_block, time_col="time"):
         if c not in nb.columns:
             nb[c] = pd.NA
 
+    # # Index by time for clean upsert
+    # master = master.set_index(time_col)
+    # nb = nb.set_index(time_col)
     # Index by time for clean upsert
     master = master.set_index(time_col)
     nb = nb.set_index(time_col)
+
+    # Only overwrite if new value is non-null (prevents wiping with NaN)
+    for col in nb.columns:
+        if col not in master.columns:
+            master[col] = pd.NA
+        mask = nb[col].notna()
+        master.loc[mask, col] = nb.loc[mask, col]
+
 
     # Update: only write where new values are NOT null
     master.update(nb)
@@ -692,8 +703,24 @@ def run_pipeline(
     max_h = float(future["T_corr"].max())
 
     # 5) Build progressive block and FILL bias for full forecast timeline
-    obs_block = obs_kf_hr.rename(columns={"time_hr": "time", "temp_F": "obs_temp_F"}).copy()
-    fcst_block = fcst_kf_hr.rename(columns={"time_hr": "time", "temp_F": "fcst_temp_F"}).copy()
+    # obs_block = obs_kf_hr.rename(columns={"time_hr": "time", "temp_F": "obs_temp_F"}).copy()
+    # fcst_block = fcst_kf_hr.rename(columns={"time_hr": "time", "temp_F": "fcst_temp_F"}).copy()
+
+    # Use the full forecast dataframe so the master stores all forecast vars
+    fcst_block = fcst_df.copy()
+    fcst_block["time"] = pd.to_datetime(fcst_block["time"]).dt.floor("h")
+
+    # Rename forecast columns to avoid collisions with obs
+    fcst_block = fcst_block.rename(columns={
+        "temp_F": "fcst_temp_F",
+        "dewpoint_F": "fcst_dewpoint_C",   # see dewpoint note below
+        "rh_pct": "fcst_rh_pct",
+        "wind_mph": "fcst_wind_mph",
+        "wind_dir": "fcst_wind_dir",
+        "sky_cover": "fcst_sky_cover",
+    })
+
+    
     fcst_block["time"] = pd.to_datetime(fcst_block["time"]).dt.floor("h")
 
     # Hourly bias series (where available)
@@ -750,7 +777,8 @@ def run_pipeline(
 
     plt.xlabel("Date / Time")
     plt.ylabel("Temperature (°F)")
-    plt.title(f"KPHL Kalman Bias Correction | Next {horizon_hours}h Max = {max_h:.1f}°F | Bias={b_now:+.2f}°F")
+    # plt.title(f"KPHL Kalman Bias Correction | Next {horizon_hours}h Max = {max_h:.1f}°F | Bias={b_now:+.2f}°F")
+    plt.title(f"{station_id} Kalman Bias Correction | Next {horizon_hours}h Max = {max_h:.1f}°F | Bias={b_now:+.2f}°F")
 
     ax = plt.gca()
     ax.xaxis.set_major_locator(mdates.HourLocator(interval=1))
@@ -785,7 +813,9 @@ def run_pipeline(
         "max_next_horizon_corr_F": max_h,
         "horizon_hours": horizon_hours,
     }])
-    run_log.to_csv(os.path.join(out_dir, "KPHL_run_log_latest.csv"), index=False)
+    # run_log.to_csv(os.path.join(out_dir, "KPHL_run_log_latest.csv"), index=False)
+    run_log.to_csv(os.path.join(out_dir, f"{station_id}_run_log_latest.csv"), index=False)
+
 
     print("DONE")
     print(run_log.iloc[0].to_dict())
