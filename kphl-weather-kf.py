@@ -705,6 +705,9 @@ def run_pipeline(
     # 5) Build progressive block and FILL bias for full forecast timeline
     # obs_block = obs_kf_hr.rename(columns={"time_hr": "time", "temp_F": "obs_temp_F"}).copy()
     # fcst_block = fcst_kf_hr.rename(columns={"time_hr": "time", "temp_F": "fcst_temp_F"}).copy()
+    # Build hourly observation block
+    obs_block = obs_kf_hr.rename(columns={"time_hr": "time", "temp_F": "obs_temp_F"}).copy()
+    obs_block["time"] = pd.to_datetime(obs_block["time"]).dt.floor("h")
 
     # Use the full forecast dataframe so the master stores all forecast vars
     fcst_block = fcst_df.copy()
