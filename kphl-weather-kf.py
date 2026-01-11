@@ -572,30 +572,30 @@ def kalman_bias_update(b, P, residual, Q, R):
 # -----------------------------
 # Progressive master helper (Option 1)
 # -----------------------------
-def upsert_master_by_time(master_path, new_block, time_col="time"):
-    new_block = new_block.copy()
-    new_block[time_col] = pd.to_datetime(new_block[time_col])
+# def upsert_master_by_time(master_path, new_block, time_col="time"):
+#     new_block = new_block.copy()
+#     new_block[time_col] = pd.to_datetime(new_block[time_col])
 
-    if os.path.exists(master_path):
-        master = pd.read_csv(master_path)
-        master[time_col] = pd.to_datetime(master[time_col])
-    else:
-        master = pd.DataFrame(columns=new_block.columns)
+#     if os.path.exists(master_path):
+#         master = pd.read_csv(master_path)
+#         master[time_col] = pd.to_datetime(master[time_col])
+#     else:
+#         master = pd.DataFrame(columns=new_block.columns)
 
-    merged = master.merge(new_block, on=time_col, how="outer", suffixes=("", "_new"))
+#     merged = master.merge(new_block, on=time_col, how="outer", suffixes=("", "_new"))
 
-    # Prefer new non-null values
-    for col in new_block.columns:
-        if col == time_col:
-            continue
-        new_col = col + "_new"
-        if new_col in merged.columns:
-            merged[col] = merged[new_col].combine_first(merged[col])
-            merged.drop(columns=[new_col], inplace=True)
+#     # Prefer new non-null values
+#     for col in new_block.columns:
+#         if col == time_col:
+#             continue
+#         new_col = col + "_new"
+#         if new_col in merged.columns:
+#             merged[col] = merged[new_col].combine_first(merged[col])
+#             merged.drop(columns=[new_col], inplace=True)
 
-    merged = merged.sort_values(time_col).reset_index(drop=True)
-    merged.to_csv(master_path, index=False)
-    return merged
+#     merged = merged.sort_values(time_col).reset_index(drop=True)
+#     merged.to_csv(master_path, index=False)
+#     return merged
 
 
 # -----------------------------
@@ -608,7 +608,7 @@ def upsert_master_by_time(master_path, new_block, time_col="time"):
 #     horizon_hours=48,
 #     tz_name="America/New_York"
 # ):
-    def run_pipeline(
+def run_pipeline(
     out_dir="out",
     station_id="KPHL",
     lat=39.8733,
