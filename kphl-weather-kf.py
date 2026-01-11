@@ -390,7 +390,23 @@ MASTER_PATH = os.path.join(OUT_DIR, "KPHL_master_progressive.csv")
 # --- Build the "new block" to upsert into master ---
 # Hourly-aligned frames you already have: obs_kf_hr, fcst_kf_hr, bias_df
 
+# obs_block = obs_kf_hr.rename(columns={"time_hr": "time", "temp_F": "obs_temp_F"}).copy()
+# # REPLACE fcst_block creation: use full forecast dataframe so master keeps all forecast variables
+# fcst_block = fcst_df.copy()
+# fcst_block["time"] = pd.to_datetime(fcst_block["time"]).dt.tz_localize(None).dt.floor("h")
+
+# # Rename forecast columns so they don't collide with obs columns later
+# fcst_block = fcst_block.rename(columns={
+#     "temp_F": "fcst_temp_F",
+#     "dewpoint_F": "fcst_dewpoint_F",   # if you have dewpoint_F; if you used dewpoint_C, rename that instead
+#     "rh_pct": "fcst_rh_pct",
+#     "wind_mph": "fcst_wind_mph",
+#     "wind_dir": "fcst_wind_dir",
+#     "sky_cover": "fcst_sky_cover",
+# })
+# Keep obs the same
 obs_block = obs_kf_hr.rename(columns={"time_hr": "time", "temp_F": "obs_temp_F"}).copy()
+
 # REPLACE fcst_block creation: use full forecast dataframe so master keeps all forecast variables
 fcst_block = fcst_df.copy()
 fcst_block["time"] = pd.to_datetime(fcst_block["time"]).dt.tz_localize(None).dt.floor("h")
