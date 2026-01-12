@@ -11,6 +11,23 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import matplotlib.ticker as mticker
 
+def to_utc_hourly_index(idx: pd.DatetimeIndex, assume_tz: str | None = None) -> pd.DatetimeIndex:
+    """
+    Ensure an index is timezone-aware UTC and floored to the hour.
+    If idx is tz-naive and assume_tz is provided, localize to that tz first.
+    """
+    idx = pd.DatetimeIndex(idx)
+
+    if idx.tz is None:
+        if assume_tz:
+            idx = idx.tz_localize(assume_tz)
+        else:
+            # If you truly don't know, treat as UTC rather than mixing naive+aware later
+            idx = idx.tz_localize("UTC")
+
+    idx = idx.tz_convert("UTC")
+    return idx.floor("H")
+
 def get_nws_hourly_forecast_df(lat=39.8733, lon=-75.2268):
     import requests, pandas as pd
 
@@ -235,6 +252,14 @@ def run_pipeline(
     print("DEBUG obs tz:", getattr(obs_hourly.index, "tz", None))
     print("DEBUG fcst tz:", getattr(fcst_hourly.index, "tz", None))
 
+    # Example: after building obs df
+    # NOAA/NWS obhistory pages are typically local station time; for KNYC/KPHL that’s America/New_York.
+    obs.index = to_utc_hourly_index(obs.index, assume_tz="America/New_York")
+
+    # Example: after building forecast df
+    # Many NWS/forecast APIs are already UTC; if tz-naive, treat as UTC.
+    fcst.index = to_utc_hourly_index(fcst.index, assume_tz="UTC")
+
     # 3) KF bias update loop
     Q = 0.3**2
     R = 2.0**2
@@ -275,13 +300,6 @@ def run_pipeline(
     fcst_block = fcst_df.copy()
     fcst_block["time"] = pd.to_datetime(fcst_block["time"]).dt.floor("h")
     
-    # obs_block = obs_kf_hr.rename(columns={"time_hr": "time", "temp_F": "obs_temp_F"}).copy()
-    # obs_block["time"] = pd.to_datetime(obs_block["time"]).dt.floor("h")
-
-    # # Use the full forecast dataframe so the master stores all forecast vars
-    # fcst_block = fcst_df.copy()
-    # fcst_block["time"] = pd.to_datetime(fcst_block["time"]).dt.floor("h")
-
     # Rename forecast columns to avoid collisions with obs
     fcst_block = fcst_block.rename(columns={
         "temp_F": "fcst_temp_F",
@@ -323,17 +341,11 @@ def run_pipeline(
     master_path = os.path.join(out_dir, f"{station_id}_master_progressive.csv")
     master_df = upsert_master_by_time(master_path, block, time_col="time")
 
-    # Also save latest data products (debuggable)
-    # fcst_df.to_csv(os.path.join(out_dir, "KPHL_fcst_latest.csv"), index=False)
-    # obs_df.to_csv(os.path.join(out_dir, "KPHL_obs_latest.csv"), index=False)
-    # bias_df.to_csv(os.path.join(out_dir, "KPHL_bias_latest.csv"), index=False)
-    # future.to_csv(os.path.join(out_dir, "KPHL_future_corr_latest.csv"), index=False)
-
     fcst_df.to_csv(os.path.join(out_dir, f"{station_id}_fcst_latest.csv"), index=False)
     obs_df.to_csv(os.path.join(out_dir, f"{station_id}_obs_latest.csv"), index=False)
     bias_df.to_csv(os.path.join(out_dir, f"{station_id}_bias_latest.csv"), index=False)
     future.to_csv(os.path.join(out_dir, f"{station_id}_future_corr_latest.csv"), index=False)
-    
+
     # 7) Save a plot PNG (no GUI needed)
     fig = plt.figure(figsize=(18, 5))
 
