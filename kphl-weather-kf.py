@@ -211,7 +211,7 @@ def run_pipeline(
     # obs_df = get_nws_kphl_obs_df(tz_name=tz_name)
     obs_df = get_nws_kphl_obs_df(url=obs_url, tz_name=tz_name)
 
-        # 2) Standardize time on a common UTC hourly grid (robust overlap)
+    # 2) Standardize time on a common UTC hourly grid (robust overlap)
 
     # Forecast times from api.weather.gov are usually timezone-aware already.
     fcst_df["time"] = pd.to_datetime(fcst_df["time"])
@@ -258,31 +258,31 @@ def run_pipeline(
         print("DEBUG fcst time range (UTC):", fcst_kf_hr["time_hr"].min(), "->", fcst_kf_hr["time_hr"].max(), "n=", len(fcst_kf_hr))
         raise RuntimeError("No overlapping times between obs and forecast after hourly alignment.")
 
-    common = obs_hourly.index.intersection(fcst_hourly.index)
+    # common = obs_hourly.index.intersection(fcst_hourly.index)
     
-    if len(common) == 0:
-        # Try a last-ditch: maybe one side is naive UTC and the other is UTC-aware.
-        # Convert both again defensively and retry.
-        obs_hourly.index = pd.DatetimeIndex(obs_hourly.index).tz_convert("UTC").floor("H")
-        fcst_hourly.index = pd.DatetimeIndex(fcst_hourly.index).tz_convert("UTC").floor("H")
-        common = obs_hourly.index.intersection(fcst_hourly.index)
-        raise RuntimeError("No overlapping times between obs and forecast after hourly alignment.")
+    # if len(common) == 0:
+    #     # Try a last-ditch: maybe one side is naive UTC and the other is UTC-aware.
+    #     # Convert both again defensively and retry.
+    #     obs_hourly.index = pd.DatetimeIndex(obs_hourly.index).tz_convert("UTC").floor("H")
+    #     fcst_hourly.index = pd.DatetimeIndex(fcst_hourly.index).tz_convert("UTC").floor("H")
+    #     common = obs_hourly.index.intersection(fcst_hourly.index)
+    #     raise RuntimeError("No overlapping times between obs and forecast after hourly alignment.")
     
-    if merged.empty:
-        raise RuntimeError("No overlapping times between obs and forecast after hourly alignment.")
+    # if merged.empty:
+    #     raise RuntimeError("No overlapping times between obs and forecast after hourly alignment.")
         
-    print("DEBUG obs aligned:", obs_hourly.index.min(), "->", obs_hourly.index.max(), "n=", len(obs_hourly))
-    print("DEBUG fcst aligned:", fcst_hourly.index.min(), "->", fcst_hourly.index.max(), "n=", len(fcst_hourly))
-    print("DEBUG obs tz:", getattr(obs_hourly.index, "tz", None))
-    print("DEBUG fcst tz:", getattr(fcst_hourly.index, "tz", None))
+    # print("DEBUG obs aligned:", obs_hourly.index.min(), "->", obs_hourly.index.max(), "n=", len(obs_hourly))
+    # print("DEBUG fcst aligned:", fcst_hourly.index.min(), "->", fcst_hourly.index.max(), "n=", len(fcst_hourly))
+    # print("DEBUG obs tz:", getattr(obs_hourly.index, "tz", None))
+    # print("DEBUG fcst tz:", getattr(fcst_hourly.index, "tz", None))
 
-    # Example: after building obs df
-    # NOAA/NWS obhistory pages are typically local station time; for KNYC/KPHL that’s America/New_York.
-    obs.index = to_utc_hourly_index(obs.index, assume_tz="America/New_York")
+    # # Example: after building obs df
+    # # NOAA/NWS obhistory pages are typically local station time; for KNYC/KPHL that’s America/New_York.
+    # obs.index = to_utc_hourly_index(obs.index, assume_tz="America/New_York")
 
-    # Example: after building forecast df
-    # Many NWS/forecast APIs are already UTC; if tz-naive, treat as UTC.
-    fcst.index = to_utc_hourly_index(fcst.index, assume_tz="UTC")
+    # # Example: after building forecast df
+    # # Many NWS/forecast APIs are already UTC; if tz-naive, treat as UTC.
+    # fcst.index = to_utc_hourly_index(fcst.index, assume_tz="UTC")
 
     # 3) KF bias update loop
     Q = 0.3**2
