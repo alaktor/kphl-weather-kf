@@ -70,10 +70,24 @@ def get_nws_kphl_obs_df(url="https://forecast.weather.gov/data/obhistory/KPHL.ht
     else:
         df.columns = [str(c).strip().replace("\n", " ") for c in df.columns]
 
-    date_col = "Date Date Date"                         # day of month only
-    time_col = "Time (est) Time (est) Time (est)"       # HH:MM 24-hour
-    temp_col = "Temperature (ºF) Air Air"
+    # date_col = "Date Date Date"                         # day of month only
+    # time_col = "Time (est) Time (est) Time (est)"       # HH:MM 24-hour
+    # temp_col = "Temperature (ºF) Air Air"
 
+    cols = list(df.columns)
+
+    def pick_col(options):
+        for opt in options:
+            for c in cols:
+                if opt.lower() in c.lower():
+                    return c
+        raise KeyError(f"Could not find any of {options} in columns: {cols}")
+
+    date_col = pick_col(["Date"])
+    time_col = pick_col(["Time"])
+    temp_col = pick_col(["Temperature"])
+
+                            
     # Build ET datetime using current month/year
     now_et = datetime.now(ZoneInfo(tz_name))
     year, month = now_et.year, now_et.month
@@ -270,26 +284,59 @@ def run_pipeline(
             fcst_hr,
             on="time",
             direction="nearest",
-            tolerance=pd.Timedelta(hours=2),
+            tolerance=pd.Timedelta(hours=4),
         )
 
     # Drop rows where we couldn't find a forecast match
     merged = merged.dropna(subset=["T_fcst"]).sort_values("time")
 
-    
-    # merged = pd.merge(
-    #     obs_kf_hr.rename(columns={"time_hr": "time", "temp_F": "T_obs"}),
-    #     fcst_kf_hr.rename(columns={"time_hr": "time", "temp_F": "T_fcst"}),
-    #     on="time",
-    #     how="inner"
-    # ).sort_values("time")
-
     if merged.empty:
-        print("DEBUG obs time range (UTC):", obs_kf_hr["time_hr"].min(), "->", obs_kf_hr["time_hr"].max(), "n=", len(obs_kf_hr))
-        print("DEBUG fcst time range (UTC):", fcst_kf_hr["time_hr"].min(), "->", fcst_kf_hr["time_hr"].max(), "n=", len(fcst_kf_hr))
-        raise RuntimeError("No overlapping times between obs and forecast after hourly alignment.")
+        # fallback: match last obs hour to the first forecast hour AFTER it (within 6 hours)
+        last_obs = obs_hr["time"].max()
+        future_fcst = fcst_hr[fcst_hr["time"] >= last_obs].copy()
+
+        if not future_fcst.empty:
+            first_fcst_time = future_fcst["time"].min()
+            gap = first_fcst_time - last_obs
+
+            if gap <= pd.Timedelta(hours=6):
+                # Build a 1-row merged frame using last obs and first future forecast
+                last_obs_row = obs_hr.loc[obs_hr["time"] == last_obs].tail(1)
+                first_fcst_row = future_fcst.loc[future_fcst["time"] == first_fcst_time].head(1)
+
+                merged = last_obs_row.merge(first_fcst_row, on="time", how="left")
+                # If times don't match exactly, force time to last_obs and carry forecast values
+                if merged["T_fcst"].isna().all():
+                    merged = last_obs_row.copy()
+                    merged["T_fcst"] = float(first_fcst_row["T_fcst"].iloc[0])
+
+        if merged.empty:
+            print(
+                "DEBUG obs time range (UTC):",
+                obs_kf_hr["time_hr"].min(),
+                "->",
+                obs_kf_hr["time_hr"].max(),
+                "n=",
+                len(obs_kf_hr),
+            )
+            print(
+                "DEBUG fcst time range (UTC):",
+                fcst_kf_hr["time_hr"].min(),
+                "->",
+                fcst_kf_hr["time_hr"].max(),
+                "n=",
+                len(fcst_kf_hr),
+            )
+            raise RuntimeError("No overlapping times between obs and forecast after hourly alignment.")
+
     
-    print("DEBUG merged rows:", len(merged), "time range:", merged["time"].min(), "->", merged["time"].max())
+
+    # if merged.empty:
+    #     print("DEBUG obs time range (UTC):", obs_kf_hr["time_hr"].min(), "->", obs_kf_hr["time_hr"].max(), "n=", len(obs_kf_hr))
+    #     print("DEBUG fcst time range (UTC):", fcst_kf_hr["time_hr"].min(), "->", fcst_kf_hr["time_hr"].max(), "n=", len(fcst_kf_hr))
+    #     raise RuntimeError("No overlapping times between obs and forecast after hourly alignment.")
+    
+    # print("DEBUG merged rows:", len(merged), "time range:", merged["time"].min(), "->", merged["time"].max())
 
     # common = obs_hourly.index.intersection(fcst_hourly.index)
     
@@ -464,4 +511,27 @@ def run_pipeline(
     print("Progressive master rows:", len(master_df))
 
 if __name__ == "__main__":
-    run_pipeline()
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--station", default="KPHL")
+    parser.add_argument("--lat", type=float, default=39.8733)
+    parser.add_argument("--lon", type=float, default=-75.2268)
+    parser.add_argument("--obs_url", default="https://forecast.weather.gov/data/obhistory/KPHL.html")
+    parser.add_argument("--out_dir", default="out")
+    parser.add_argument("--horizon_hours", type=int, default=48)
+    parser.add_argument("--tz_name", default="America/New_York")
+    args = parser.parse_args()
+
+    run_pipeline(
+        out_dir=args.out_dir,
+        station_id=args.station,
+        lat=args.lat,
+        lon=args.lon,
+        obs_url=args.obs_url,
+        horizon_hours=args.horizon_hours,
+        tz_name=args.tz_name,
+    )
+
+# if __name__ == "__main__":
+#     run_pipeline()
