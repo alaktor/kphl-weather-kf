@@ -82,7 +82,12 @@ def get_nws_kphl_obs_df(url="https://forecast.weather.gov/data/obhistory/KPHL.ht
              .fillna("").str.zfill(2))
 
     dt_str = f"{year:04d}-{month:02d}-" + day_2 + " " + df[time_col].astype(str).str.strip()
+                            
+    # time_et = pd.to_datetime(dt_str, format="%Y-%m-%d %H:%M", errors="coerce")
     time_et = pd.to_datetime(dt_str, format="%Y-%m-%d %H:%M", errors="coerce")
+    # Localize immediately to station timezone (treat parsed times as local clock time)
+    # This avoids later ambiguity and keeps everything consistent.
+    time_et = time_et.dt.tz_localize(tz_name, ambiguous="infer", nonexistent="shift_forward")
 
     # Clean temperature
     temp = (df[temp_col].astype(str)
@@ -223,8 +228,10 @@ def run_pipeline(
     # Obs times from obhistory are tz-naive local station time -> localize, then convert to UTC
     obs_df["time"] = pd.to_datetime(obs_df["time"])
     if obs_df["time"].dt.tz is None:
+    # Shouldn't happen after Step 1, but keep a safe fallback
         obs_df["time"] = obs_df["time"].dt.tz_localize(tz_name).dt.tz_convert("UTC")
     else:
+    # Already tz-aware local -> just convert to UTC
         obs_df["time"] = obs_df["time"].dt.tz_convert("UTC")
 
     # Minimal KF inputs
@@ -245,7 +252,16 @@ def run_pipeline(
 
     fcst_kf_hr = (fcst_kf.groupby("time_hr", as_index=False)
                   .agg(temp_F=("temp_F", "mean")))
+    # If there is no overlap and the series are exactly 1 hour apart, shift obs by +1 hour.
+    # This handles common DST/label quirks in obhistory tables.
+    if len(obs_kf_hr) > 0 and len(fcst_kf_hr) > 0:
+        obs_max = obs_kf_hr["time_hr"].max()
+        fcst_min = fcst_kf_hr["time_hr"].min()
+        gap = fcst_min - obs_max
+        if gap == pd.Timedelta(hours=1):
+            obs_kf_hr["time_hr"] = obs_kf_hr["time_hr"] + pd.Timedelta(hours=1)
 
+    
     merged = pd.merge(
         obs_kf_hr.rename(columns={"time_hr": "time", "temp_F": "T_obs"}),
         fcst_kf_hr.rename(columns={"time_hr": "time", "temp_F": "T_fcst"}),
