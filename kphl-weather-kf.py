@@ -260,19 +260,36 @@ def run_pipeline(
         gap = fcst_min - obs_max
         if gap == pd.Timedelta(hours=1):
             obs_kf_hr["time_hr"] = obs_kf_hr["time_hr"] + pd.Timedelta(hours=1)
+    
+        obs_hr = obs_kf_hr.rename(columns={"time_hr": "time", "temp_F": "T_obs"}).sort_values("time")
+        fcst_hr = fcst_kf_hr.rename(columns={"time_hr": "time", "temp_F": "T_fcst"}).sort_values("time")
+
+        # Merge obs to nearest forecast time within tolerance
+        merged = pd.merge_asof(
+            obs_hr,
+            fcst_hr,
+            on="time",
+            direction="nearest",
+            tolerance=pd.Timedelta(hours=2),
+        )
+
+# Drop rows where we couldn't find a forecast match
+merged = merged.dropna(subset=["T_fcst"]).sort_values("time")
 
     
-    merged = pd.merge(
-        obs_kf_hr.rename(columns={"time_hr": "time", "temp_F": "T_obs"}),
-        fcst_kf_hr.rename(columns={"time_hr": "time", "temp_F": "T_fcst"}),
-        on="time",
-        how="inner"
-    ).sort_values("time")
+    # merged = pd.merge(
+    #     obs_kf_hr.rename(columns={"time_hr": "time", "temp_F": "T_obs"}),
+    #     fcst_kf_hr.rename(columns={"time_hr": "time", "temp_F": "T_fcst"}),
+    #     on="time",
+    #     how="inner"
+    # ).sort_values("time")
 
     if merged.empty:
         print("DEBUG obs time range (UTC):", obs_kf_hr["time_hr"].min(), "->", obs_kf_hr["time_hr"].max(), "n=", len(obs_kf_hr))
         print("DEBUG fcst time range (UTC):", fcst_kf_hr["time_hr"].min(), "->", fcst_kf_hr["time_hr"].max(), "n=", len(fcst_kf_hr))
         raise RuntimeError("No overlapping times between obs and forecast after hourly alignment.")
+    
+    print("DEBUG merged rows:", len(merged), "time range:", merged["time"].min(), "->", merged["time"].max())
 
     # common = obs_hourly.index.intersection(fcst_hourly.index)
     
