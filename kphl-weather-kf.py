@@ -229,6 +229,11 @@ def run_pipeline(
 
     if merged.empty:
         raise RuntimeError("No overlapping times between obs and forecast after hourly alignment.")
+        
+    print("DEBUG obs aligned:", obs_hourly.index.min(), "->", obs_hourly.index.max(), "n=", len(obs_hourly))
+    print("DEBUG fcst aligned:", fcst_hourly.index.min(), "->", fcst_hourly.index.max(), "n=", len(fcst_hourly))
+    print("DEBUG obs tz:", getattr(obs_hourly.index, "tz", None))
+    print("DEBUG fcst tz:", getattr(fcst_hourly.index, "tz", None))
 
     # 3) KF bias update loop
     Q = 0.3**2
