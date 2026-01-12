@@ -121,39 +121,6 @@ def kalman_bias_update(b, P, residual, Q, R):
     return b_post, P_post, K
 
 
-#Helper
-
-
-# def upsert_master_by_time(master_path, new_block, time_col="time"):
-#     """
-#     Upsert rows into a 'progressive master' CSV keyed by time.
-#     - If master exists: merge and prefer new non-null values.
-#     - If master doesn't exist: create it.
-#     """
-#     new_block = new_block.copy()
-#     new_block[time_col] = pd.to_datetime(new_block[time_col])
-
-#     if os.path.exists(master_path):
-#         master = pd.read_csv(master_path)
-#         master[time_col] = pd.to_datetime(master[time_col])
-#     else:
-#         master = pd.DataFrame(columns=new_block.columns)
-
-#     merged = master.merge(new_block, on=time_col, how="outer", suffixes=("", "_new"))
-
-#     # For each field, prefer new values when present
-#     for col in new_block.columns:
-#         if col == time_col:
-#             continue
-#         new_col = col + "_new"
-#         if new_col in merged.columns:
-#             merged[col] = merged[new_col].combine_first(merged[col])
-#             merged.drop(columns=[new_col], inplace=True)
-
-#     merged = merged.sort_values(time_col).reset_index(drop=True)
-#     merged.to_csv(master_path, index=False)
-#     return merged
-
 def upsert_master_by_time(master_path, new_block, time_col="time"):
     """
     Option A master:
