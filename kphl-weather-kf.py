@@ -244,6 +244,19 @@ def run_pipeline(
         how="inner"
     ).sort_values("time")
 
+    common = obs_hourly.index.intersection(fcst_hourly.index)
+    if len(common) == 0:
+        # Try a last-ditch: maybe one side is naive UTC and the other is UTC-aware.
+        # Convert both again defensively and retry.
+        obs_hourly.index = pd.DatetimeIndex(obs_hourly.index).tz_convert("UTC").floor("H")
+        fcst_hourly.index = pd.DatetimeIndex(fcst_hourly.index).tz_convert("UTC").floor("H")
+        common = obs_hourly.index.intersection(fcst_hourly.index)
+
+    if len(common) == 0:
+        print("DEBUG obs aligned:", obs_hourly.index.min(), "->", obs_hourly.index.max(), "n=", len(obs_hourly))
+        print("DEBUG fcst aligned:", fcst_hourly.index.min(), "->", fcst_hourly.index.max(), "n=", len(fcst_hourly))
+        raise RuntimeError("No overlapping times between obs and forecast after hourly alignment.")
+    
     if merged.empty:
         raise RuntimeError("No overlapping times between obs and forecast after hourly alignment.")
         
