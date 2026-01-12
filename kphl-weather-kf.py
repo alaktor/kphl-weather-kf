@@ -182,7 +182,7 @@ def upsert_master_by_time(master_path, new_block, time_col="time"):
 
 
     # Update: only write where new values are NOT null
-    master.update(nb)
+    # master.update(nb)
 
     # Append: add times that are new
     master = pd.concat([master, nb[~nb.index.isin(master.index)]], axis=0)
@@ -211,30 +211,39 @@ def run_pipeline(
     # obs_df = get_nws_kphl_obs_df(tz_name=tz_name)
     obs_df = get_nws_kphl_obs_df(url=obs_url, tz_name=tz_name)
 
+        # 2) Standardize time on a common UTC hourly grid (robust overlap)
 
-    # 2) Standardize time (drop tz for alignment)
-    fcst_df["time"] = pd.to_datetime(fcst_df["time"]).dt.tz_localize(None)
-    obs_df["time"] = pd.to_datetime(obs_df["time"]).dt.tz_localize(None)
+    # Forecast times from api.weather.gov are usually timezone-aware already.
+    fcst_df["time"] = pd.to_datetime(fcst_df["time"])
+    if fcst_df["time"].dt.tz is None:
+        fcst_df["time"] = fcst_df["time"].dt.tz_localize("UTC")
+    else:
+        fcst_df["time"] = fcst_df["time"].dt.tz_convert("UTC")
+
+    # Obs times from obhistory are tz-naive local station time -> localize, then convert to UTC
+    obs_df["time"] = pd.to_datetime(obs_df["time"])
+    if obs_df["time"].dt.tz is None:
+        obs_df["time"] = obs_df["time"].dt.tz_localize(tz_name).dt.tz_convert("UTC")
+    else:
+        obs_df["time"] = obs_df["time"].dt.tz_convert("UTC")
 
     # Minimal KF inputs
     fcst_kf = fcst_df[["time", "temp_F"]].copy()
-    obs_kf = obs_df[["time", "temp_F"]].copy()
+    obs_kf  = obs_df[["time", "temp_F"]].copy()
 
     fcst_kf["temp_F"] = pd.to_numeric(fcst_kf["temp_F"], errors="coerce")
-    obs_kf["temp_F"] = pd.to_numeric(obs_kf["temp_F"], errors="coerce")
+    obs_kf["temp_F"]  = pd.to_numeric(obs_kf["temp_F"], errors="coerce")
     fcst_kf = fcst_kf.dropna().sort_values("time")
-    obs_kf = obs_kf.dropna().sort_values("time")
+    obs_kf  = obs_kf.dropna().sort_values("time")
 
-    # Align to hourly grid
-    obs_kf["time_hr"] = obs_kf["time"].dt.round("h")
+    # Align to hourly grid using the SAME rule for both
+    obs_kf["time_hr"]  = obs_kf["time"].dt.floor("h")
     fcst_kf["time_hr"] = fcst_kf["time"].dt.floor("h")
 
-    obs_kf_hr = (obs_kf.sort_values("time")
-                 .groupby("time_hr", as_index=False)
+    obs_kf_hr = (obs_kf.groupby("time_hr", as_index=False)
                  .agg(temp_F=("temp_F", "mean")))
 
-    fcst_kf_hr = (fcst_kf.sort_values("time")
-                  .groupby("time_hr", as_index=False)
+    fcst_kf_hr = (fcst_kf.groupby("time_hr", as_index=False)
                   .agg(temp_F=("temp_F", "mean")))
 
     merged = pd.merge(
@@ -244,17 +253,19 @@ def run_pipeline(
         how="inner"
     ).sort_values("time")
 
+    if merged.empty:
+        print("DEBUG obs time range (UTC):", obs_kf_hr["time_hr"].min(), "->", obs_kf_hr["time_hr"].max(), "n=", len(obs_kf_hr))
+        print("DEBUG fcst time range (UTC):", fcst_kf_hr["time_hr"].min(), "->", fcst_kf_hr["time_hr"].max(), "n=", len(fcst_kf_hr))
+        raise RuntimeError("No overlapping times between obs and forecast after hourly alignment.")
+
     common = obs_hourly.index.intersection(fcst_hourly.index)
+    
     if len(common) == 0:
         # Try a last-ditch: maybe one side is naive UTC and the other is UTC-aware.
         # Convert both again defensively and retry.
         obs_hourly.index = pd.DatetimeIndex(obs_hourly.index).tz_convert("UTC").floor("H")
         fcst_hourly.index = pd.DatetimeIndex(fcst_hourly.index).tz_convert("UTC").floor("H")
         common = obs_hourly.index.intersection(fcst_hourly.index)
-
-    if len(common) == 0:
-        print("DEBUG obs aligned:", obs_hourly.index.min(), "->", obs_hourly.index.max(), "n=", len(obs_hourly))
-        print("DEBUG fcst aligned:", fcst_hourly.index.min(), "->", fcst_hourly.index.max(), "n=", len(fcst_hourly))
         raise RuntimeError("No overlapping times between obs and forecast after hourly alignment.")
     
     if merged.empty:
