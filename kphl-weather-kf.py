@@ -273,8 +273,8 @@ def run_pipeline(
             tolerance=pd.Timedelta(hours=2),
         )
 
-# Drop rows where we couldn't find a forecast match
-merged = merged.dropna(subset=["T_fcst"]).sort_values("time")
+    # Drop rows where we couldn't find a forecast match
+    merged = merged.dropna(subset=["T_fcst"]).sort_values("time")
 
     
     # merged = pd.merge(
