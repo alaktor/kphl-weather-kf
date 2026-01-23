@@ -192,6 +192,24 @@ def upsert_master_by_time(master_path, new_block, time_col="time"):
     master = master.set_index(time_col)
     nb = nb.set_index(time_col)
 
+    # debug
+    # debug: inspect shapes and indices
+    print(f"[DEBUG] master.shape = {master.shape}")
+    print(f"[DEBUG] nb.shape = {nb.shape}")
+    print(f"[DEBUG] mask.sum() = {mask.sum()}  mask.len = {len(mask)}")
+    # sample indices
+    print("[DEBUG] master.index[:5]:", master.index[:5])
+    print("[DEBUG] nb.index[:5]:", nb.index[:5])
+    print("[DEBUG] LHS selection index (master.index[mask])[:5]:", master.index[mask][:5])
+    print("[DEBUG] RHS selection index (nb.index[mask])[:5] if possible")
+    try:
+        rhs = nb.loc[mask, col]
+        print("[DEBUG] rhs.shape:", getattr(rhs, "shape", None))
+        print("[DEBUG] rhs.index[:5]:", rhs.index[:5])
+    except Exception as e:
+        print("[DEBUG] RHS selection raised:", e)
+
+    
     # Only overwrite if new value is non-null (prevents wiping with NaN)
     for col in nb.columns:
         if col not in master.columns:
