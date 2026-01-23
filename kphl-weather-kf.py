@@ -156,78 +156,184 @@ def kalman_bias_update(b, P, residual, Q, R):
 
     return b_post, P_post, K
 
+    def upsert_master_by_time(master_path: str, nb: pd.DataFrame, time_col: str = "time") -> pd.DataFrame:
+        """
+        Upsert rows from `nb` into `master` by matching on `time_col`.
+        If master file doesn't exist or is empty, initialize it from nb.
+        Returns the updated master DataFrame (not necessarily written to disk here;
+        callers can choose to save it).
+        """
+        # --- Defensive copy ---
+        nb = nb.copy()
+        # ensure time col exists
+        if time_col not in nb.columns:
+            raise KeyError(f"nb missing required time column '{time_col}'")
+    
+        # normalize nb time and index
+        nb[time_col] = pd.to_datetime(nb[time_col], errors="coerce")
+        # drop rows in nb with invalid times
+        nb = nb.dropna(subset=[time_col])
+        nb = nb.sort_values(time_col)
+    
+        # remove duplicate times in nb (keep last)
+        if nb.duplicated(subset=[time_col]).any():
+            print(f"[WARN] nb has duplicate {time_col} values; keeping last occurrence.")
+            nb = nb.drop_duplicates(subset=[time_col], keep="last")
+    
+        nb = nb.set_index(time_col)
+    
+        # Load master if it exists
+        master = None
+        if master_path and os.path.exists(master_path):
+            try:
+                master = pd.read_parquet(master_path) if master_path.endswith(".parquet") else pd.read_csv(master_path, parse_dates=[time_col])
+                # ensure datetime and index
+                if time_col in master.columns:
+                    master[time_col] = pd.to_datetime(master[time_col], errors="coerce")
+                    master = master.dropna(subset=[time_col])
+                    master = master.sort_values(time_col)
+                    master = master.drop_duplicates(subset=[time_col], keep="last")
+                    master = master.set_index(time_col)
+                else:
+                    # if master has no time_col but has index that is datetime-like, leave it; otherwise error
+                    try:
+                        # attempt to coerce index to datetime
+                        master.index = pd.to_datetime(master.index)
+                    except Exception:
+                        raise KeyError(f"master at {master_path} missing '{time_col}' column and index not datetime-like.")
+            except Exception as e:
+                # If reading fails, treat as empty (but log)
+                print(f"[WARN] failed to read master from {master_path}: {e}. Initializing new master from nb.")
+                master = pd.DataFrame(columns=nb.columns).set_index(nb.index[:0].name or nb.index.name)
+    
+        # If master is None or empty, initialize and return nb as new master
+        if master is None or len(master) == 0:
+            print(f"[INFO] master is missing or empty; initializing master with nb (rows={len(nb)})")
+            master = nb.copy()
+            # If caller expects a file write, they can save master outside this function.
+            return master
+    
+        # At this point, both master and nb are indexed by datetime (time_col)
+        # Debug logging
+        print(f"[DEBUG] master.shape = {master.shape}")
+        print(f"[DEBUG] nb.shape = {nb.shape}")
+    
+        # Compute mask of times in master that should be updated (where nb has values)
+        intersect_idx = master.index.intersection(nb.index)
+        if len(intersect_idx) == 0:
+            # No overlapping times — append rows from nb that are not in master
+            to_append_idx = nb.index.difference(master.index)
+            if len(to_append_idx) > 0:
+                print(f"[INFO] no overlap in time indices. Appending {len(to_append_idx)} new rows from nb.")
+                master = pd.concat([master, nb.loc[to_append_idx]], axis=0).sort_index()
+            else:
+                print("[INFO] no overlapping or new rows to append - master unchanged.")
+            return master
+    
+        # For overlapping times, update each column present in nb
+        common_cols = [c for c in nb.columns if c in master.columns]
+        extra_cols = [c for c in nb.columns if c not in master.columns]
+        if extra_cols:
+            # Add extra columns to master filled with NaN before upserting
+            for c in extra_cols:
+                master[c] = pd.NA
+            print(f"[INFO] added extra columns to master: {extra_cols}")
+    
+        # Align nb to master index so selections match by position
+        nb_aligned = nb.reindex(master.index)  # now same index order as master
+    
+        # Update overlapping rows (positional-safe assignment)
+        for col in common_cols:
+            rhs = nb_aligned.loc[intersect_idx, col]
+            if len(rhs) != len(intersect_idx):
+                # Defensive: this should not happen given reindex/intersect, but check to be safe
+                print(f"[ERROR] length mismatch when preparing to assign column '{col}': rhs={len(rhs)} idx={len(intersect_idx)}")
+                raise ValueError(f"Length mismatch when assigning column '{col}'")
+            # Use .values to do positional assignment avoiding index-alignment surprises
+            master.loc[intersect_idx, col] = rhs.values
+    
+        # Append rows in nb that are not in master
+        to_append_idx = nb.index.difference(master.index)
+        if len(to_append_idx) > 0:
+            print(f"[INFO] appending {len(to_append_idx)} rows from nb not present in master.")
+            master = pd.concat([master, nb.loc[to_append_idx]], axis=0)
+            master = master.sort_index()
+    
+        return master
 
-def upsert_master_by_time(master_path, new_block, time_col="time"):
-    """
-    Option A master:
-    - Keep a single row per hour (keyed by `time`)
-    - Append new hours as they appear
-    - Update existing hours with new non-null values
-    - Never overwrite existing values with NaN/blank
-    - Preserve ALL historical rows (no trimming)
-    """
-    nb = new_block.copy()
-    nb[time_col] = pd.to_datetime(nb[time_col])
-    nb = nb.sort_values(time_col).reset_index(drop=True)
 
-    # Load existing master
-    if os.path.exists(master_path):
-        master = pd.read_csv(master_path)
-        master[time_col] = pd.to_datetime(master[time_col])
-    else:
-        master = pd.DataFrame(columns=nb.columns)
 
-    # Ensure both have same columns (union)
-    for c in nb.columns:
-        if c not in master.columns:
-            master[c] = pd.NA
-    for c in master.columns:
-        if c not in nb.columns:
-            nb[c] = pd.NA
+# def upsert_master_by_time(master_path, new_block, time_col="time"):
+#     """
+#     Option A master:
+#     - Keep a single row per hour (keyed by `time`)
+#     - Append new hours as they appear
+#     - Update existing hours with new non-null values
+#     - Never overwrite existing values with NaN/blank
+#     - Preserve ALL historical rows (no trimming)
+#     """
+#     nb = new_block.copy()
+#     nb[time_col] = pd.to_datetime(nb[time_col])
+#     nb = nb.sort_values(time_col).reset_index(drop=True)
 
-    # # Index by time for clean upsert
-    # master = master.set_index(time_col)
-    # nb = nb.set_index(time_col)
-    # Index by time for clean upsert
-    master = master.set_index(time_col)
-    nb = nb.set_index(time_col)
+#     # Load existing master
+#     if os.path.exists(master_path):
+#         master = pd.read_csv(master_path)
+#         master[time_col] = pd.to_datetime(master[time_col])
+#     else:
+#         master = pd.DataFrame(columns=nb.columns)
 
-    # debug
-    # debug: inspect shapes and indices
-    print(f"[DEBUG] master.shape = {master.shape}")
-    print(f"[DEBUG] nb.shape = {nb.shape}")
-    print(f"[DEBUG] mask.sum() = {mask.sum()}  mask.len = {len(mask)}")
-    # sample indices
-    print("[DEBUG] master.index[:5]:", master.index[:5])
-    print("[DEBUG] nb.index[:5]:", nb.index[:5])
-    print("[DEBUG] LHS selection index (master.index[mask])[:5]:", master.index[mask][:5])
-    print("[DEBUG] RHS selection index (nb.index[mask])[:5] if possible")
-    try:
-        rhs = nb.loc[mask, col]
-        print("[DEBUG] rhs.shape:", getattr(rhs, "shape", None))
-        print("[DEBUG] rhs.index[:5]:", rhs.index[:5])
-    except Exception as e:
-        print("[DEBUG] RHS selection raised:", e)
+#     # Ensure both have same columns (union)
+#     for c in nb.columns:
+#         if c not in master.columns:
+#             master[c] = pd.NA
+#     for c in master.columns:
+#         if c not in nb.columns:
+#             nb[c] = pd.NA
+
+#     # # Index by time for clean upsert
+#     # master = master.set_index(time_col)
+#     # nb = nb.set_index(time_col)
+#     # Index by time for clean upsert
+#     master = master.set_index(time_col)
+#     nb = nb.set_index(time_col)
+
+#     # # debug
+#     # # debug: inspect shapes and indices
+#     # print(f"[DEBUG] master.shape = {master.shape}")
+#     # print(f"[DEBUG] nb.shape = {nb.shape}")
+#     # print(f"[DEBUG] mask.sum() = {mask.sum()}  mask.len = {len(mask)}")
+#     # # sample indices
+#     # print("[DEBUG] master.index[:5]:", master.index[:5])
+#     # print("[DEBUG] nb.index[:5]:", nb.index[:5])
+#     # print("[DEBUG] LHS selection index (master.index[mask])[:5]:", master.index[mask][:5])
+#     # print("[DEBUG] RHS selection index (nb.index[mask])[:5] if possible")
+#     # try:
+#     #     rhs = nb.loc[mask, col]
+#     #     print("[DEBUG] rhs.shape:", getattr(rhs, "shape", None))
+#     #     print("[DEBUG] rhs.index[:5]:", rhs.index[:5])
+#     # except Exception as e:
+#     #     print("[DEBUG] RHS selection raised:", e)
 
     
-    # Only overwrite if new value is non-null (prevents wiping with NaN)
-    for col in nb.columns:
-        if col not in master.columns:
-            master[col] = pd.NA
-        mask = nb[col].notna()
-        master.loc[mask, col] = nb.loc[mask, col]
+#     # Only overwrite if new value is non-null (prevents wiping with NaN)
+#     for col in nb.columns:
+#         if col not in master.columns:
+#             master[col] = pd.NA
+#         mask = nb[col].notna()
+#         master.loc[mask, col] = nb.loc[mask, col]
 
 
-    # Update: only write where new values are NOT null
-    # master.update(nb)
+#     # Update: only write where new values are NOT null
+#     # master.update(nb)
 
-    # Append: add times that are new
-    master = pd.concat([master, nb[~nb.index.isin(master.index)]], axis=0)
+#     # Append: add times that are new
+#     master = pd.concat([master, nb[~nb.index.isin(master.index)]], axis=0)
 
-    # Sort + save
-    master = master.sort_index().reset_index()
-    master.to_csv(master_path, index=False)
-    return master
+#     # Sort + save
+#     master = master.sort_index().reset_index()
+#     master.to_csv(master_path, index=False)
+#     return master
 
 
 def run_pipeline(
