@@ -157,13 +157,13 @@ def kalman_bias_update(b, P, residual, Q, R):
     return b_post, P_post, K
 
     def upsert_master_by_time(master_path: str, nb: pd.DataFrame, time_col: str = "time") -> pd.DataFrame:
-        # """
-        # Upsert rows from `nb` into `master` by matching on `time_col`.
-        # If master file doesn't exist or is empty, initialize it from nb.
-        # Returns the updated master DataFrame (not necessarily written to disk here;
-        # callers can choose to save it).
-        # """
-        # # --- Defensive copy ---
+        """
+        Upsert rows from `nb` into `master` by matching on `time_col`.
+        If master file doesn't exist or is empty, initialize it from nb.
+        Returns the updated master DataFrame (not necessarily written to disk here;
+        callers can choose to save it).
+        """
+        # --- Defensive copy ---
         nb = nb.copy()
         # ensure time col exists
         if time_col not in nb.columns:
