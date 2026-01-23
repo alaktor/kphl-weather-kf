@@ -156,62 +156,62 @@ def kalman_bias_update(b, P, residual, Q, R):
 
     return b_post, P_post, K
 
-    def upsert_master_by_time(master_path: str, nb: pd.DataFrame, time_col: str = "time") -> pd.DataFrame:
-        """
-        Upsert rows from `nb` into `master` by matching on `time_col`.
-        If master file doesn't exist or is empty, initialize it from nb.
-        Returns the updated master DataFrame (not necessarily written to disk here;
-        callers can choose to save it).
-        """
-        # --- Defensive copy ---
-        nb = nb.copy()
-        # ensure time col exists
-        if time_col not in nb.columns:
-            raise KeyError(f"nb missing required time column '{time_col}'")
-    
-        # normalize nb time and index
-        nb[time_col] = pd.to_datetime(nb[time_col], errors="coerce")
-        # drop rows in nb with invalid times
-        nb = nb.dropna(subset=[time_col])
-        nb = nb.sort_values(time_col)
-    
-        # remove duplicate times in nb (keep last)
-        if nb.duplicated(subset=[time_col]).any():
-            print(f"[WARN] nb has duplicate {time_col} values; keeping last occurrence.")
-            nb = nb.drop_duplicates(subset=[time_col], keep="last")
-    
-        nb = nb.set_index(time_col)
-    
-        # Load master if it exists
-        master = None
-        if master_path and os.path.exists(master_path):
-            try:
-                master = pd.read_parquet(master_path) if master_path.endswith(".parquet") else pd.read_csv(master_path, parse_dates=[time_col])
-                # ensure datetime and index
-                if time_col in master.columns:
-                    master[time_col] = pd.to_datetime(master[time_col], errors="coerce")
-                    master = master.dropna(subset=[time_col])
-                    master = master.sort_values(time_col)
-                    master = master.drop_duplicates(subset=[time_col], keep="last")
-                    master = master.set_index(time_col)
-                else:
-                    # if master has no time_col but has index that is datetime-like, leave it; otherwise error
-                    try:
-                        # attempt to coerce index to datetime
-                        master.index = pd.to_datetime(master.index)
-                    except Exception:
-                        raise KeyError(f"master at {master_path} missing '{time_col}' column and index not datetime-like.")
-            except Exception as e:
-                # If reading fails, treat as empty (but log)
-                print(f"[WARN] failed to read master from {master_path}: {e}. Initializing new master from nb.")
-                master = pd.DataFrame(columns=nb.columns).set_index(nb.index[:0].name or nb.index.name)
-    
-        # If master is None or empty, initialize and return nb as new master
-        if master is None or len(master) == 0:
-            print(f"[INFO] master is missing or empty; initializing master with nb (rows={len(nb)})")
-            master = nb.copy()
-            # If caller expects a file write, they can save master outside this function.
-            return master
+def upsert_master_by_time(master_path: str, nb: pd.DataFrame, time_col: str = "time") -> pd.DataFrame:
+    """
+    Upsert rows from `nb` into `master` by matching on `time_col`.
+    If master file doesn't exist or is empty, initialize it from nb.
+    Returns the updated master DataFrame (not necessarily written to disk here;
+    callers can choose to save it).
+    """
+    # --- Defensive copy ---
+    nb = nb.copy()
+    # ensure time col exists
+    if time_col not in nb.columns:
+        raise KeyError(f"nb missing required time column '{time_col}'")
+
+    # normalize nb time and index
+    nb[time_col] = pd.to_datetime(nb[time_col], errors="coerce")
+    # drop rows in nb with invalid times
+    nb = nb.dropna(subset=[time_col])
+    nb = nb.sort_values(time_col)
+
+    # remove duplicate times in nb (keep last)
+    if nb.duplicated(subset=[time_col]).any():
+        print(f"[WARN] nb has duplicate {time_col} values; keeping last occurrence.")
+        nb = nb.drop_duplicates(subset=[time_col], keep="last")
+
+    nb = nb.set_index(time_col)
+
+    # Load master if it exists
+    master = None
+    if master_path and os.path.exists(master_path):
+        try:
+            master = pd.read_parquet(master_path) if master_path.endswith(".parquet") else pd.read_csv(master_path, parse_dates=[time_col])
+            # ensure datetime and index
+            if time_col in master.columns:
+                master[time_col] = pd.to_datetime(master[time_col], errors="coerce")
+                master = master.dropna(subset=[time_col])
+                master = master.sort_values(time_col)
+                master = master.drop_duplicates(subset=[time_col], keep="last")
+                master = master.set_index(time_col)
+            else:
+                # if master has no time_col but has index that is datetime-like, leave it; otherwise error
+                try:
+                    # attempt to coerce index to datetime
+                    master.index = pd.to_datetime(master.index)
+                except Exception:
+                    raise KeyError(f"master at {master_path} missing '{time_col}' column and index not datetime-like.")
+        except Exception as e:
+            # If reading fails, treat as empty (but log)
+            print(f"[WARN] failed to read master from {master_path}: {e}. Initializing new master from nb.")
+            master = pd.DataFrame(columns=nb.columns).set_index(nb.index[:0].name or nb.index.name)
+
+    # If master is None or empty, initialize and return nb as new master
+    if master is None or len(master) == 0:
+        print(f"[INFO] master is missing or empty; initializing master with nb (rows={len(nb)})")
+        master = nb.copy()
+        # If caller expects a file write, they can save master outside this function.
+        return master
     
         # At this point, both master and nb are indexed by datetime (time_col)
         # Debug logging
